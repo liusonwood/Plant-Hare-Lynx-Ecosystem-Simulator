@@ -55,8 +55,12 @@ export class EcoChatAgent extends AIChatAgent<Env> {
       }),
       "animal-population-set": tool({
         description:
-          "设置物种数量（仅种群，不含模型参数）。部分更新：键为物种 id（需先 read 获取可用 id），值为目标数量。低于该物种最小阈值会自动 clamp。",
-        inputSchema: z.record(z.string(), z.number()),
+          "设置物种数量（仅种群，不含模型参数）。部分更新：可以传入植物(plant)、雪兔(hare)或猞猁(lynx)的数量。未提供的物种保持不变。低于该物种最小阈值会自动 clamp。",
+        inputSchema: z.object({
+          plant: z.number().optional().describe("植物种群的目标数量（可选，不传保持不变）"),
+          hare: z.number().optional().describe("雪兔种群的目标数量（可选，不传保持不变）"),
+          lynx: z.number().optional().describe("猞猁种群的目标数量（可选，不传保持不变）"),
+        }),
       }),
       "start": tool({
         description: "启动或继续模拟。",
