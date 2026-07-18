@@ -22,9 +22,16 @@ export interface UseEcoAgent {
  * "必须先 Read"：会话级 hasRead ref，set 前置校验。
  */
 export function useEcoAgent(sim: UseEcoSimulation): UseEcoAgent {
+  const sessionId = useMemo(() => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }, []);
+
   const agent = useAgent({
     agent: "EcoChat",
-    name: "default",
+    name: sessionId,
   });
 
   const hasRead = useRef(false);
