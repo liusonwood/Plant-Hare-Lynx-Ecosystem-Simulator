@@ -23,7 +23,12 @@ export default {
     // 1. 先尝试路由到 Agent（WebSocket / RPC）
     let routed = await routeAgentRequest(req, env);
     if (routed) {
-      // 保证所有 Agent 响应都带上正确的 CORS 头部
+      // WebSocket 升级 (101) 或 204/304 响应不能/不需要重新构造，直接返回原响应
+      if (routed.status === 101 || routed.status === 204 || routed.status === 304) {
+        return routed;
+      }
+
+      // 保证所有 HTTP Agent 响应都带上正确的 CORS 头部
       const origin = req.headers.get("Origin");
       const headers = new Headers(routed.headers);
       if (origin) {
