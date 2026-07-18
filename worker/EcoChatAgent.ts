@@ -69,7 +69,10 @@ export class EcoChatAgent extends AIChatAgent<Env> {
     };
 
     const result = streamText({
-      model: openai(this.env.OPENAI_MODEL),
+      // 用 .chat() 明确走 Chat Completions API（/chat/completions），
+      // 而非默认的 Responses API（/responses）。所有 OpenAI 兼容端点
+      // （官方 / 第三方网关 / Ollama 等）都支持 chat completions。
+      model: openai.chat(this.env.OPENAI_MODEL),
       system: SYSTEM_PROMPT,
       messages: await convertToModelMessages(this.messages),
       tools,
