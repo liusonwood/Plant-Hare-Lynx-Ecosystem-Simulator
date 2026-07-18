@@ -65,13 +65,13 @@ npx wrangler deploy
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `OPENAI_BASE_URL` | OpenAI 兼容 API base URL | `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | 模型名（需支持 tools/tool_choice） | `gpt-4o-mini` |
-| `OPENAI_API_KEY` | API Key（secret，不入 wrangler.jsonc） | `sk-...` |
+| `OPENAI_BASE_URL` | OpenAI 兼容 API base URL（不带末尾 `/`，`/chat/completions` 自动拼接） | `https://integrate.api.nvidia.com/v1` |
+| `OPENAI_MODEL` | 模型名（需端点支持） | `stepfun-ai/step-3.7-flash` |
+| `OPENAI_API_KEY` | API Key（secret，不入 wrangler.jsonc） | `nvapi-...` |
 
-- `OPENAI_BASE_URL` 与 `OPENAI_MODEL` 在 `wrangler.jsonc` 的 `vars` 中配置。
+- `OPENAI_BASE_URL` 与 `OPENAI_MODEL` 在 `wrangler.jsonc` 的 `vars` 中配置（默认 NVIDIA Integrate API）。
 - `OPENAI_API_KEY` 用 `wrangler secret put` 设置，本地放 `.dev.vars`（已 gitignore）。
-- 兼容任意 OpenAI 兼容端点（官方 / 第三方网关 / Ollama 等），需端点支持 `tools` 与 `tool_choice`。
+- 兼容任意 OpenAI Chat Completions 兼容端点（NVIDIA Integrate / 官方 OpenAI / 第三方网关 / Ollama 等），由 `@ai-sdk/openai-compatible` 驱动，走标准 `/chat/completions`。
 
 ## 🤖 AI 助手与工具
 
