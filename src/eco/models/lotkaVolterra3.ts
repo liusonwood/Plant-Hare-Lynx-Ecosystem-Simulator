@@ -25,7 +25,7 @@ export const lotkaVolterra3: EcoModelSpec = {
     {
       id: "plant",
       name: "植物种群",
-      icon: "dicot_plant_icon.png",
+      icon: "/dicot_plant_icon.png",
       color: "#2e7d32",
       axis: "left",
       minValue: 1.2,
@@ -38,7 +38,7 @@ export const lotkaVolterra3: EcoModelSpec = {
     {
       id: "hare",
       name: "雪兔种群",
-      icon: "snow_hare_icon.png",
+      icon: "/snow_hare_icon.png",
       color: "#1e88e5",
       axis: "right",
       minValue: 0.5,
@@ -49,7 +49,7 @@ export const lotkaVolterra3: EcoModelSpec = {
     {
       id: "lynx",
       name: "猞猁种群",
-      icon: "lynx_icon.png",
+      icon: "/lynx_icon.png",
       color: "#e53935",
       axis: "right",
       minValue: 0.2,

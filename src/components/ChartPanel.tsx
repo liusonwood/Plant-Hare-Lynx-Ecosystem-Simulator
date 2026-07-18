@@ -15,16 +15,14 @@ export function ChartPanel({ sim, chart, onOpenTuner }: ChartPanelProps) {
     () => sim.spec.species.map(() => false),
   );
 
-  // 数据变化时同步到图表
+  // 数据变化时同步到图表（建图由 useEcoChart 的 effect 管理，此处仅同步数据）
   useEffect(() => {
     chart.setData(sim.history, sim.timeData);
   }, [sim.history, sim.timeData, chart]);
 
-  // spec 切换时重建图表 + 重置可见性
+  // spec 切换时重置图例可见性（图表重建由 useEcoChart effect 自动处理）
   useEffect(() => {
-    chart.rebuild(sim.history, sim.timeData);
     setHiddenStates(sim.spec.species.map(() => false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sim.spec.id]);
 
   const handleToggle = (index: number) => {

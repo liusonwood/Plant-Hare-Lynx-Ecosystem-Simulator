@@ -15,11 +15,6 @@ export interface UseEcoChart {
     history: Record<string, number[]>,
     timeData: number[],
   ) => void;
-  /** 完全重建图表（spec 切换时用） */
-  rebuild: (
-    history: Record<string, number[]>,
-    timeData: number[],
-  ) => void;
   /** 重置所有曲线可见性 */
   resetDatasetsVisibility: () => void;
   /** 切换某条曲线可见性 */
@@ -29,9 +24,17 @@ export interface UseEcoChart {
 export function useEcoChart(spec: EcoModelSpec): UseEcoChart {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<Chart<"line"> | null>(null);
+  // 持有最新 spec，供方法闭包读取，避免 spec 切换后引用旧值
+  const specRef = useRef(spec);
+  specRef.current = spec;
+  // 缓存最近一次 setData 的数据，建图后立即回填（解决 spec 切换/StrictMode 时序）
+  const lastDataRef = useRef<{
+    history: Record<string, number[]>;
+    timeData: number[];
+  } | null>(null);
 
-  const buildDatasets = (): ChartDataset<"line">[] => {
-    return spec.species.map((s) => ({
+  const buildDatasets = (currentSpec: EcoModelSpec): ChartDataset<"line">[] => {
+    return currentSpec.species.map((s) => ({
       label: s.name,
       data: [],
       borderColor: s.color,
@@ -43,20 +46,29 @@ export function useEcoChart(spec: EcoModelSpec): UseEcoChart {
     }));
   };
 
+  /** 创建图表实例。
+   *  若 canvas 上已注册 Chart 实例（StrictMode 重挂载残留），先销毁它再创建，
+   *  避免 "Canvas is already in use"。仅检查 canvas 本身的注册，不动 chartRef。 */
   const createChart = (): Chart<"line"> | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
+    // 防止 canvas 被占用：销毁该 canvas 上已注册的任何实例
+    const occupied = Chart.getChart(canvas);
+    if (occupied) {
+      occupied.destroy();
+    }
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    const left = spec.axisRanges.left;
-    const right = spec.axisRanges.right;
+    const currentSpec = specRef.current;
+    const left = currentSpec.axisRanges.left;
+    const right = currentSpec.axisRanges.right;
 
     const config: ChartConfiguration<"line"> = {
       type: "line",
       data: {
         labels: ["0"],
-        datasets: buildDatasets(),
+        datasets: buildDatasets(currentSpec),
       } as ChartData<"line">,
       options: {
         responsive: true,
@@ -118,37 +130,43 @@ export function useEcoChart(spec: EcoModelSpec): UseEcoChart {
 
     const instance = new Chart(ctx, config);
     chartRef.current = instance;
+    // 建图后立即回填最近一次数据（spec 切换/StrictMode 重挂载时保持数据连续）
+    if (lastDataRef.current) {
+      const { history, timeData } = lastDataRef.current;
+      currentSpec.species.forEach((s, i) => {
+        instance.data.datasets[i].data = [...(history[s.id] ?? [])];
+      });
+      instance.data.labels = timeData.map((t) => t.toFixed(1));
+      instance.update("none");
+    }
     return instance;
+  };
+
+  /** 销毁 chartRef 持有的实例并清空 ref。仅动 chartRef，不查 canvas 注册表
+   *  （避免在重复挂载循环中误杀新实例）。 */
+  const destroyChart = () => {
+    if (chartRef.current) {
+      chartRef.current.destroy();
+      chartRef.current = null;
+    }
   };
 
   const setData = (
     history: Record<string, number[]>,
     timeData: number[],
   ) => {
+    // 缓存数据，供建图后回填
+    lastDataRef.current = { history, timeData };
     const chart = chartRef.current;
-    if (!chart) return;
-    spec.species.forEach((s, i) => {
+    if (!chart) return; // 图表未就绪时跳过（建图后会从缓存回填）
+    const currentSpec = specRef.current;
+    // 防御：dataset 数量与 species 不匹配则跳过（spec 切换瞬间）
+    if (chart.data.datasets.length !== currentSpec.species.length) return;
+    currentSpec.species.forEach((s, i) => {
       chart.data.datasets[i].data = [...(history[s.id] ?? [])];
     });
     chart.data.labels = timeData.map((t) => t.toFixed(1));
     chart.update("none");
-  };
-
-  const rebuild = (
-    history: Record<string, number[]>,
-    timeData: number[],
-  ) => {
-    if (chartRef.current) {
-      chartRef.current.destroy();
-      chartRef.current = null;
-    }
-    const chart = createChart();
-    if (!chart) return;
-    spec.species.forEach((s, i) => {
-      chart.data.datasets[i].data = [...(history[s.id] ?? [])];
-    });
-    chart.data.labels = timeData.map((t) => t.toFixed(1));
-    chart.update();
   };
 
   const resetDatasetsVisibility = () => {
@@ -169,14 +187,13 @@ export function useEcoChart(spec: EcoModelSpec): UseEcoChart {
     chart.update();
   };
 
-  // spec 切换时销毁重建
+  // 单一 effect 管理图表生命周期。
+  // 关键：cleanup 用 destroyChart（仅 chartRef），createChart 用 Chart.getChart(canvas)
+  // 防占用。两者检查不同对象，避免 StrictMode 重挂载循环中互相误杀。
   useEffect(() => {
     createChart();
     return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy();
-        chartRef.current = null;
-      }
+      destroyChart();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec.id]);
@@ -184,7 +201,6 @@ export function useEcoChart(spec: EcoModelSpec): UseEcoChart {
   return {
     canvasRef,
     setData,
-    rebuild,
     resetDatasetsVisibility,
     toggleDataset,
   };
