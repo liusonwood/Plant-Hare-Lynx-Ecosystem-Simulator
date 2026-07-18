@@ -44,6 +44,23 @@ npx wrangler secret put OPENAI_API_KEY   # 生产密钥
 npx wrangler deploy
 ```
 
+### 方式三：Cloudflare Workers Builds（Git 连接自动部署）
+
+将仓库连接到 Cloudflare Workers 项目后，每次 push 自动构建部署。在 dashboard **Settings → Build** 配置：
+
+| 设置项 | 值 |
+|------|------|
+| Root directory | 仓库根（含 `wrangler.jsonc` 的目录） |
+| Build command | `npm run build`（Vite 构建前端到 `dist/`） |
+| Deploy command | `npx wrangler deploy`（默认，自动跑，无需改） |
+
+环境变量在 **Settings → Build → Build Variables and Secrets** 配置：
+- `OPENAI_API_KEY`（设为 Secret）
+- `OPENAI_BASE_URL`、`OPENAI_MODEL`（已在 `wrangler.jsonc` 的 `vars`，也可在此覆盖）
+
+> Node 版本由 `.node-version` 文件指定（22.18.0+，满足 `@babel` 8.x 引擎要求）。如需更改，编辑 `.node-version` 或设置 `NODE_VERSION` 环境变量。
+> Worker 名称（dashboard）需与 `wrangler.jsonc` 的 `name` 一致。
+
 ## 🔧 环境变量
 
 | 变量 | 说明 | 示例 |
