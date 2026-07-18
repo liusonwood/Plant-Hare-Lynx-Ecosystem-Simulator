@@ -1,0 +1,33 @@
+{
+  "name": "plant-hare-lynx-ecosystem-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "基于 Lotka-Volterra 三营养级模型的交互式生态学教学演示，含 AI Agent 助手",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "wrangler:dev": "wrangler dev",
+    "wrangler:deploy": "wrangler deploy",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "agents": "^0.17.4",
+    "@cloudflare/ai-chat": "^0.9.3",
+    "ai": "^6.0.0",
+    "@ai-sdk/openai": "^3.0.86",
+    "zod": "^4.4.3",
+    "chart.js": "^4.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.4.3",
+    "wrangler": "^3.90.0"
+  }
+}
