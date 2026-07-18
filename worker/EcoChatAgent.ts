@@ -6,7 +6,7 @@ import {
   stepCountIs,
   type ToolSet,
 } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
 import type { Env } from "./env.d";
 
@@ -37,7 +37,11 @@ export class EcoChatAgent extends AIChatAgent<Env> {
     onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0],
     options?: Parameters<AIChatAgent<Env>["onChatMessage"]>[1],
   ) {
-    const openai = createOpenAI({
+    // 用 openai-compatible provider：默认走 Chat Completions API（/chat/completions），
+    // 兼容官方 OpenAI 及任意 OpenAI 兼容端点（第三方网关 / Ollama / 自建代理等），
+    // 不会触发 @ai-sdk/openai 默认的 Responses API（/responses，多数兼容端点 404）。
+    const provider = createOpenAICompatible({
+      name: "openai",
       baseURL: this.env.OPENAI_BASE_URL,
       apiKey: this.env.OPENAI_API_KEY,
     });
@@ -69,10 +73,8 @@ export class EcoChatAgent extends AIChatAgent<Env> {
     };
 
     const result = streamText({
-      // 用 .chat() 明确走 Chat Completions API（/chat/completions），
-      // 而非默认的 Responses API（/responses）。所有 OpenAI 兼容端点
-      // （官方 / 第三方网关 / Ollama 等）都支持 chat completions。
-      model: openai.chat(this.env.OPENAI_MODEL),
+      // openai-compatible provider 直接调用即走 Chat Completions（/chat/completions）
+      model: provider(this.env.OPENAI_MODEL),
       system: SYSTEM_PROMPT,
       messages: await convertToModelMessages(this.messages),
       tools,

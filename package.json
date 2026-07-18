@@ -13,14 +13,14 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "agents": "^0.17.4",
+    "@ai-sdk/openai-compatible": "^2.0.62",
     "@cloudflare/ai-chat": "^0.9.3",
+    "agents": "^0.17.4",
     "ai": "^6.0.0",
-    "@ai-sdk/openai": "^3.0.86",
-    "zod": "^4.4.3",
     "chart.js": "^4.4.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
