@@ -30,7 +30,7 @@ export function useEcoAgent(sim: UseEcoSimulation): UseEcoAgent {
   }, []);
 
   const agent = useAgent({
-    agent: "EcoChatAgent",
+    agent: "EcoChat",
     name: sessionId,
   });
 
