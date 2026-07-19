@@ -69,6 +69,8 @@ export function useEcoAgent(sim: UseEcoSimulation): UseEcoAgent {
   const { messages, sendMessage, status, isStreaming, clearHistory } =
     useAgentChat({
       agent,
+      getInitialMessages: null,
+      resume: false,
       autoContinueAfterToolResult: true,
       onToolCall: async ({ toolCall, addToolOutput }) => {
         const toolName = toolCall.toolName;

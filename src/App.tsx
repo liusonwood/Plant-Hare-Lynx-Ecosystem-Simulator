@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, Suspense } from "react";
 import { getModel, DEFAULT_MODEL_ID } from "./eco/models";
 import { useEcoSimulation } from "./eco/useEcoSimulation";
 import { useEcoChart } from "./eco/useEcoChart";
@@ -48,11 +48,13 @@ export function App() {
             chart={chart}
             onOpenTuner={() => setTunerOpen(true)}
           />
-          <AgentChatDrawer
-            agent={agent}
-            collapsed={aiCollapsed}
-            onToggle={() => setAiCollapsed((c) => !c)}
-          />
+          <Suspense fallback={<div className="chat-fallback">加载聊天中...</div>}>
+            <AgentChatDrawer
+              agent={agent}
+              collapsed={aiCollapsed}
+              onToggle={() => setAiCollapsed((c) => !c)}
+            />
+          </Suspense>
         </div>
       </div>
 
