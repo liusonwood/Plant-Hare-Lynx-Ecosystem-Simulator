@@ -1,0 +1,302 @@
+================================================================
+  植物-雪兔-猞猁生态模拟器 —— 自建服务器部署说明（nginx + workerd）
+================================================================
+
+【重要前提】
+本项目的后端（worker/）基于 Cloudflare 运行时 API：
+  - AIChatAgent（@cloudflare/ai-chat，Durable Object 子类）
+  - routeAgentRequest（agents SDK）
+  - env.ASSETS（静态资源绑定）
+  - DurableObjectNamespace（DO 绑定）
+这些 API 是 Cloudflare 平台专属，nginx / 纯 Node.js 没有对应实现。
+
+因此「不改代码 + 不用 Cloudflare 云 + 部署到自己服务器」的唯一可行方案是：
+  用 Cloudflare 开源的 workerd 运行时（通过 wrangler dev 本地模式）
+  在你自己的服务器上常驻运行这份 Worker，nginx 在前面做反向代理 + TLS。
+
+  - 前端构建产物 dist/   → 由 workerd 的 ASSETS 绑定托管（不需要 nginx 单独托管静态文件）
+  - AI / WebSocket 流量  → workerd 处理，nginx 透传
+  - AI 会话状态          → workerd 用本地 SQLite 持久化到 .wrangler/ 目录
+  - 对外只暴露 nginx 的 80 / 443
+
+------------------------------------------------------------
+0. 服务器要求
+------------------------------------------------------------
+- Linux 服务器一台（Ubuntu 22.04 / Debian 12 / CentOS 等）
+- 已安装或可安装：Node.js 22.x、git、nginx
+- 一个域名（推荐，用于 HTTPS；纯 IP 也可但不安全，AI 流量含 API Key）
+- 已有 OpenAI 兼容 API 的 base_url / model / api_key
+  （默认示例：NVIDIA Integrate API，也可换官方 OpenAI / 第三方网关 / Ollama）
+
+------------------------------------------------------------
+1. 安装 Node.js 22（项目 .node-version 指定 22.18.0）
+------------------------------------------------------------
+# Ubuntu/Debian（NodeSource）
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt-get install -y nodejs
+
+# 验证
+node -v   # 应为 v22.x
+npm -v
+
+------------------------------------------------------------
+2. 拉取代码并安装依赖
+------------------------------------------------------------
+# 选一个目录，例如 /opt/eco-simulator
+sudo mkdir -p /opt/eco-simulator
+sudo chown $USER:$USER /opt/eco-simulator
+cd /opt/eco-simulator
+
+git clone <你的仓库地址> .
+# 或：把本地代码 scp/rsync 上来
+
+npm install
+
+------------------------------------------------------------
+3. 构建前端
+------------------------------------------------------------
+npm run build
+# 产物在 dist/，由 workerd 的 ASSETS 绑定托管，无需 nginx 单独配静态目录
+
+------------------------------------------------------------
+4. 配置环境变量（.dev.vars）
+------------------------------------------------------------
+项目根有 .dev.vars.example，复制并填入真实值：
+
+cp .dev.vars.example .dev.vars
+vi .dev.vars
+
+内容（注意：base_url 末尾不要带 /）：
+  OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+  OPENAI_MODEL=stepfun-ai/step-3.7-flash
+  OPENAI_API_KEY=nvapi-你的真实key
+
+说明：
+- wrangler dev 会自动读取 .dev.vars 注入到 env
+- .dev.vars 已在 .gitignore，不会提交
+- OPENAI_BASE_URL / OPENAI_MODEL 也可不改 .dev.vars，
+  而是直接改 wrangler.jsonc 的 vars 字段（已在文件里给了默认值）
+- 换其它兼容端点（OpenAI 官方 / Ollama / 第三方网关）只需改这三项
+
+------------------------------------------------------------
+5. 本地试跑（验证 workerd 能起来）
+------------------------------------------------------------
+npx wrangler dev --ip 127.0.0.1 --port 8787
+
+预期看到：
+  Ready on http://127.0.0.1:8787
+  ┌ Worker URL: http://127.0.0.1:8787
+
+浏览器或 curl 访问 http://127.0.0.1:8787 应返回前端首页。
+确认无误后 Ctrl+C 停掉，下一步用 systemd 守护。
+
+注意：
+- 首次启动会按 wrangler.jsonc 的 migrations 建本地 SQLite（Durable Object 存储），
+  数据落在 .wrangler/ 目录，请勿删除，否则 AI 会话历史会丢。
+- workerd 本地模式完全离线于 Cloudflare 云，不消耗 Cloudflare 额度。
+
+------------------------------------------------------------
+6. 用 systemd 守护 workerd 进程
+------------------------------------------------------------
+# 1) 创建专用用户（可选，建议不用 root 跑）
+sudo useradd -r -m -d /opt/eco-simulator -s /bin/bash ecorunner
+sudo chown -R ecorunner:ecorunner /opt/eco-simulator
+
+# 2) 写 service 文件
+sudo tee /etc/systemd/system/eco-simulator.service > /dev/null <<'EOF'
+[Unit]
+Description=Eco Simulator Worker (workerd via wrangler dev)
+After=network.target
+
+[Service]
+Type=simple
+User=ecorunner
+WorkingDirectory=/opt/eco-simulator
+ExecStart=/usr/bin/npx wrangler dev --ip 127.0.0.1 --port 8787
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+# 如需覆盖 .node-version，可加：
+# Environment=NODE_VERSION=22
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 3) 启用并启动
+sudo systemctl daemon-reload
+sudo systemctl enable --now eco-simulator
+sudo systemctl status eco-simulator     # 应为 active (running)
+
+# 查看日志
+sudo journalctl -u eco-simulator -f
+
+验证本地端口：
+  curl -I http://127.0.0.1:8787     # 应 200
+
+------------------------------------------------------------
+7. 安装并配置 nginx 反向代理
+------------------------------------------------------------
+sudo apt-get install -y nginx
+
+写站点配置（HTTP，先跑通；HTTPS 见第 8 步）：
+sudo tee /etc/nginx/sites-available/eco-simulator > /dev/null <<'EOF'
+server {
+    listen 80;
+    server_name your-domain.com;     # ← 改成你的域名或 IP
+
+    client_max_body_size 20m;
+
+    # 关键：AI 流式响应（SSE / chunked）必须关缓冲，否则前端收不到流
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_request_buffering off;
+
+    # AI 流式 + WebSocket 需要长超时
+    proxy_read_timeout  3600s;
+    proxy_send_timeout  3600s;
+    proxy_connect_timeout 60s;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+
+        # 透传 Host 与客户端信息
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket 升级（AI Agent 用 ws 通信）
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $http_upgrade;
+        proxy_http_version 1.1;
+    }
+}
+EOF
+
+sudo ln -sf /etc/nginx/sites-available/eco-simulator /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t                  # 语法检查
+sudo systemctl reload nginx
+
+访问 http://your-domain.com 验证：
+  - 首页正常加载
+  - 模拟器可运行
+  - 右侧 AI 抽屉能发消息且流式返回
+
+------------------------------------------------------------
+8. 配置 HTTPS（强烈推荐，AI 流量携带 API Key）
+------------------------------------------------------------
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+
+certbot 会自动：
+  - 申请 Let's Encrypt 证书
+  - 把上面 80 端口的 server 块改成 443 + SSL
+  - 配置 80 → 443 跳转
+  - 自动续期（systemd timer）
+
+完成后 nginx 配置大致为：
+  server {
+      listen 443 ssl http2;
+      server_name your-domain.com;
+      ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+      ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+      # ... 其余 proxy_* 配置同第 7 步 ...
+  }
+  server {
+      listen 80;
+      server_name your-domain.com;
+      return 301 https://$host$request_uri;
+  }
+
+验证：访问 https://your-domain.com
+
+------------------------------------------------------------
+9. 更新代码 / 重新部署流程
+------------------------------------------------------------
+cd /opt/eco-simulator
+git pull
+npm install            # 依赖有变更时
+npm run build          # 重建前端到 dist/
+sudo systemctl restart eco-simulator
+# nginx 不用动
+
+------------------------------------------------------------
+10. 常见问题排查
+------------------------------------------------------------
+Q1: AI 抽屉一直转圈、没有流式回复
+A: 99% 是 nginx 缓冲没关。确认配置里有：
+     proxy_buffering off;
+     proxy_cache off;
+   并且 location 里 proxy_http_version 1.1; 以及 Upgrade/Connection 头齐全。
+
+Q2: AI 抽屉报错 / WebSocket 连不上
+A: 检查 .dev.vars 里 OPENAI_API_KEY 是否正确、OPENAI_BASE_URL 末尾是否多了 /。
+   看 workerd 日志：
+     sudo journalctl -u eco-simulator -f
+   手动测一下上游 API：
+     curl https://integrate.api.nvidia.com/v1/chat/completions \
+       -H "Authorization: Bearer 你的key" \
+       -H "Content-Type: application/json" \
+       -d '{"model":"stepfun-ai/step-3.7-flash","messages":[{"role":"user","content":"hi"}]}'
+
+Q3: 重启后 AI 历史会话没了
+A: .wrangler/ 目录被删了。该目录存放 workerd 本地 SQLite（Durable Object 状态），
+   部署/更新时不要删 .wrangler/，git 里也已 ignore。
+
+Q4: 端口 8787 被占用
+A: 改 systemd 里的 --port 和 nginx 里的 proxy_pass 一致即可。
+
+Q5: 想换模型 / 换 API 提供商
+A: 改 .dev.vars 三项（或 wrangler.jsonc 的 vars），然后：
+     sudo systemctl restart eco-simulator
+   无需 rebuild 前端。
+
+Q6: workerd 算不算「用了 Cloudflare」
+A: workerd 是 Cloudflare 开源的运行时（Apache 2.0），跑在你自己机器上，
+   不经过 Cloudflare 云、不消耗 Cloudflare 额度、不联网 Cloudflare。
+   代码无需改动，但运行时仍然是 Cloudflare 系的 API 模型。
+   如果你要求「彻底脱离任何 Cloudflare 技术」，则必须重写后端
+   （把 EcoChatAgent 换成 Node + ws + 自建会话存储），改动量较大。
+
+------------------------------------------------------------
+11. 备份建议
+------------------------------------------------------------
+定期备份以下两处即可完整恢复：
+  - /opt/eco-simulator/.wrangler/   （AI 会话状态 SQLite）
+  - /opt/eco-simulator/.dev.vars    （API Key）
+
+例如 crontab 每天：
+  0 3 * * * tar czf /backup/eco-$(date +\%F).tar.gz \
+    /opt/eco-simulator/.wrangler /opt/eco-simulator/.dev.vars
+
+================================================================
+  部署架构总览
+================================================================
+
+  用户浏览器
+      │  https (443) / wss
+      ▼
+  ┌─────────────────────────────────────────┐
+  │ nginx                                   │
+  │  - TLS 终止 (Let's Encrypt)             │
+  │  - 反向代理 + WebSocket 透传            │
+  │  - 关闭缓冲（支持 AI 流式）             │
+  └─────────────────────────────────────────┘
+      │  http://127.0.0.1:8787
+      ▼
+  ┌─────────────────────────────────────────┐
+  │ workerd (wrangler dev, systemd 守护)    │
+  │  worker/index.ts                        │
+  │   - routeAgentRequest → EcoChatAgent DO │
+  │   - env.ASSETS.fetch → dist/ 静态资源   │
+  │   - 调用上游 OpenAI 兼容 API            │
+  │  .wrangler/ : 本地 SQLite (DO 状态)     │
+  │  .dev.vars  : OPENAI_* 环境变量         │
+  └─────────────────────────────────────────┘
+      │  https
+      ▼
+  上游 LLM（NVIDIA / OpenAI / Ollama / 网关）
+================================================================
